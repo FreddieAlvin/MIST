@@ -1,0 +1,352 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/apartment_structure/protos/Wall.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/adept/pioneer3/protos/Pioneer3at.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/toys/protos/RubberDuck.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/factory/containers/protos/WoodenBox.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/obstacles/protos/OilBarrel.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/obstacles/protos/Ramp30deg.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/devices/velodyne/protos/VelodyneVLP-16.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/Roughcast.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/street_furniture/protos/FireHydrant.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/factory/containers/protos/CardboardBox.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/garden/protos/Gnome.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/plants/protos/FlowerPot.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/traffic/protos/TrafficCone.proto"
+
+WorldInfo {
+}
+Viewpoint {
+  orientation -0.029471840941266415 0.9936656985963246 0.10844302662970523 0.5340245570761964
+  position -25.06578748982229 0.8821305409102254 12.73379307494213
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+  translation 0 0.5 0
+  contactMaterial ""
+  floorSize 25 10
+}
+Pioneer3at {
+  translation -10.80613889228435 0.3815305507087674 -0.0025895644387902705
+  rotation 0.00012790719022151036 0.0012864172973224431 0.9999991643847947 0.039176907179647086
+  controller "mist_controller"
+  window "<none>"
+  extensionSlot [
+    Camera {
+      translation 0.2 0 0.3
+      far 20
+    }
+    VelodyneVLP-16 {
+      translation 0 0 0.4
+    }
+  ]
+}
+DEF hallway_2 Group {
+  children [
+    Ramp30deg {
+      translation 4.92 0.35 -0.83
+    }
+    OilBarrel {
+      translation 0 0.42 0.28
+      height 0.5
+    }
+    WoodenBox {
+      translation -6.6 0.94 0.3
+    }
+    RubberDuck {
+      translation -3.4600669729268323 -0.1660070773156807 0.09650151738991354
+      rotation 4.472126125047059e-07 -1.23475021564075e-07 0.9999999999998925 2.6028172392811877
+      scale 5
+    }
+    Wall {
+      translation 1.01 1.3 0
+      rotation 0 0 1 -1.5707953071795862
+      name "wall left (hall2)"
+      size 0.1 21 0.5
+    }
+    Wall {
+      translation 11.52 0.36 0
+      rotation 0 0 1 3.14159
+      name "wall front (hall2)"
+      size 0.1 2 0.5
+    }
+    Wall {
+      translation 1.01 -0.55 0
+      rotation 0 0 1 -1.5707953071795862
+      name "wall right (hall2)"
+      size 0.1 21 0.5
+    }
+  ]
+}
+DEF hallway_1 Group {
+  children [
+    Wall {
+      translation -7.16 2.75 -5.30717e-08
+      rotation -1 0 0 -5.307179586466759e-06
+      size 0.2 1 0.5
+      appearance Roughcast {
+        colorOverride 1 0.798123 0.344564
+        textureTransform TextureTransform {
+          scale 2.4 1
+        }
+      }
+    }
+    Wall {
+      translation -4.6 3.5 3.92732e-06
+      rotation -1 0 0 -5.307179586466759e-06
+      name "wall(1)"
+      size 0.2 1 0.5
+      appearance Roughcast {
+        colorOverride 1 0.798123 0.344564
+        textureTransform TextureTransform {
+          scale 2.4 1
+        }
+      }
+    }
+    Wall {
+      translation 2.5 3.5 3.92732e-06
+      rotation -1 0 0 -5.307179586466759e-06
+      name "wall(3)"
+      size 0.2 1 0.5
+      appearance Roughcast {
+        colorOverride 1 0.798123 0.344564
+        textureTransform TextureTransform {
+          scale 2.4 1
+        }
+      }
+    }
+    Wall {
+      translation 6.23 2.74 -1.06226e-07
+      rotation -1 0 0 -5.307179586466759e-06
+      name "wall(4)"
+      size 0.2 1 0.5
+      appearance Roughcast {
+        colorOverride 1 0.798123 0.344564
+        textureTransform TextureTransform {
+          scale 2.4 1
+        }
+      }
+    }
+    Wall {
+      translation 9.4 2.5 -1.37997e-06
+      rotation -1 0 0 -5.307179586466759e-06
+      name "wall(5)"
+      size 0.2 0.5 0.5
+      appearance Roughcast {
+        colorOverride 1 0.798123 0.344564
+        textureTransform TextureTransform {
+          scale 2.4 1
+        }
+      }
+    }
+    Wall {
+      translation 9.4 3.76 5.30708e-06
+      rotation -1 0 0 -5.307179586466759e-06
+      name "wall(6)"
+      size 0.2 0.5 0.5
+      appearance Roughcast {
+        colorOverride 1 0.798123 0.344564
+        textureTransform TextureTransform {
+          scale 2.4 1
+        }
+      }
+    }
+    Wall {
+      translation -0.51 3.12 1.91064e-06
+      rotation -1 0 0 -5.307179586466759e-06
+      name "wall(2)"
+      size 0.2 0.7 0.5
+      appearance Roughcast {
+        colorOverride 1 0.798123 0.344564
+        textureTransform TextureTransform {
+          scale 2.4 1
+        }
+      }
+    }
+    Wall {
+      translation 1.01 4.05 0
+      rotation 0 0 1 -1.5707953071795862
+      name "wall left (hall1)"
+      size 0.1 21 0.5
+    }
+    Wall {
+      translation 11.52 3.13 0
+      rotation 0 0 1 3.14159
+      name "wall front (hall1)"
+      size 0.1 2 0.5
+    }
+    Wall {
+      translation 1.01 2.2 0
+      rotation 0 0 1 -1.5707953071795862
+      name "wall right (hall1)"
+      size 0.1 21 0.5
+    }
+  ]
+}
+DEF hallway_3 Group {
+  children [
+    TrafficCone {
+      translation 6.46 -1.82 0
+      scale 0.8
+    }
+    TrafficCone {
+      translation 7.66 -1.82 0
+      scale 0.8
+      name "traffic cone(1)"
+    }
+    TrafficCone {
+      translation 7.66 -2.82 0
+      scale 0.8
+      name "traffic cone(2)"
+    }
+    TrafficCone {
+      translation 8.81 -2.82 0
+      scale 0.8
+      name "traffic cone(3)"
+    }
+    FlowerPot {
+      translation 3.41 -2.34 0
+    }
+    FlowerPot {
+      translation 3.85 -2.6 0
+      name "flower pot(1)"
+    }
+    FlowerPot {
+      translation 4.36 -1.9 0
+      name "flower pot(2)"
+    }
+    Gnome {
+      translation 3.68 -3.08 0
+      rotation 0 0 1 2.35619
+    }
+    OilBarrel {
+      translation 0 -2.77 0.28
+      name "oil barrel(1)"
+      height 0.5
+    }
+    OilBarrel {
+      translation 0.51 -2.44 0.28
+      name "oil barrel(3)"
+      height 0.5
+    }
+    CardboardBox {
+      translation -3.1017 -1.90295 0.23
+      rotation 0 0 1 -0.261795307179586
+      size 0.6 0.6 0.45
+    }
+    CardboardBox {
+      translation -2.33352 -1.93818 0.24
+      rotation 0 0 1 -1.047195307179586
+      name "cardboard box(1)"
+      size 0.6 0.6 0.45
+    }
+    FireHydrant {
+      translation -5.63 -2.38 0
+      scale 0.5
+    }
+    Wall {
+      translation -7.16 -2 -2.52627e-05
+      rotation -1 0 0 -5.307179586466759e-06
+      name "wall(7)"
+      size 0.2 1 0.5
+      appearance PBRAppearance {
+        transparency 0.5
+        roughness 1
+      }
+    }
+    Wall {
+      translation -4.46 -2.74 -2.91902e-05
+      rotation -1 0 0 -5.307179586466759e-06
+      name "wall(8)"
+      size 0.2 1 0.5
+      appearance PBRAppearance {
+        transparency 0.5
+        roughness 1
+      }
+    }
+    Wall {
+      translation -1.16 -2.74 -2.91902e-05
+      rotation -1 0 0 -5.307179586466759e-06
+      name "wall(9)"
+      size 0.2 1 0.5
+      appearance PBRAppearance {
+        transparency 0.5
+        roughness 1
+      }
+    }
+    Wall {
+      translation 5.24 -2.74 -2.91902e-05
+      rotation -1 0 0 -5.307179586466759e-06
+      name "wall(12)"
+      size 0.2 1 0.5
+      appearance PBRAppearance {
+        transparency 0.5
+        roughness 1
+      }
+    }
+    Wall {
+      translation 2.38 -2.95 -3.03054e-05
+      rotation -1 0 0 -5.307179586466759e-06
+      name "wall(10)"
+      size 0.2 0.6 0.5
+      appearance PBRAppearance {
+        transparency 0.5
+        roughness 1
+      }
+    }
+    Wall {
+      translation 9.6 -2.95 -3.03054e-05
+      rotation -1 0 0 -5.307179586466759e-06
+      name "wall(14)"
+      size 0.2 0.6 0.5
+      appearance PBRAppearance {
+        transparency 0.5
+        roughness 1
+      }
+    }
+    Wall {
+      translation 2.38 -1.8 -2.42012e-05
+      rotation -1 0 0 -5.307179586466759e-06
+      name "wall(11)"
+      size 0.2 0.6 0.5
+      appearance PBRAppearance {
+        transparency 0.5
+        roughness 1
+      }
+    }
+    Wall {
+      translation 9.6 -1.8 -2.42012e-05
+      rotation -1 0 0 -5.307179586466759e-06
+      name "wall(13)"
+      size 0.2 0.6 0.5
+      appearance PBRAppearance {
+        transparency 0.5
+        roughness 1
+      }
+    }
+    Wall {
+      translation 1.01 -1.45 0
+      rotation 0 0 1 -1.5707953071795862
+      name "wall left (hall3)"
+      size 0.1 21 0.5
+    }
+    Wall {
+      translation 11.52 -2.39 0
+      rotation 0 0 1 3.14159
+      name "wall front (hall3)"
+      size 0.1 2 0.5
+    }
+    Wall {
+      translation 1.01 -3.3 0
+      rotation 0 0 1 -1.5707953071795862
+      name "wall right (hall3)"
+      size 0.1 21 0.5
+    }
+  ]
+}
