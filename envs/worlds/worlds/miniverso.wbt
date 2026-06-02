@@ -16,12 +16,13 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/appearances/protos/Copper.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/robots/gctronic/e-puck/protos/E-puckDistanceSensor.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/solids/protos/SolidPipe.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/adept/pioneer3/protos/Pioneer3at.proto"
 
 WorldInfo {
 }
 Viewpoint {
-  orientation -0.11157916344885346 0.9627549337195291 0.24627835447468585 0.8796925350828946
-  position -15.54928841892544 -3.244845475092193 14.978770264508977
+  orientation -0.0003803815955098758 0.9999989782264532 0.0013779898008218624 0.5408009398165479
+  position -13.410338978351998 -3.7853514430307866 7.661502635980989
 }
 TexturedBackground {
 }
@@ -194,7 +195,7 @@ DEF hallway_4 Group {
     Wall {
       translation 9.4 -5.76 -4.52173e-05
       rotation -1 0 0 -5.307179586466759e-06
-      name "wall(3)"
+      name "wall(3)."
       size 0.2 0.5 0.5
       appearance Roughcast {
         colorOverride 1 0.798123 0.344564
@@ -206,7 +207,7 @@ DEF hallway_4 Group {
     Wall {
       translation 9.4 -4.5 -3.85288e-05
       rotation -1 0 0 -5.307179586466759e-06
-      name "wall(3)"
+      name "wall(3).."
       size 0.2 0.5 0.5
       appearance Roughcast {
         colorOverride 1 0.798123 0.344564
@@ -1485,4 +1486,32 @@ Robot {
   controller "mist_controller"
   supervisor TRUE
   cpuConsumption 1.11
+}
+Pioneer3at {
+  translation 1.64 -4.53 0
+  rotation 0 0 1 -1.5707953071795862
+  name "Pioneer 3-AT(2)"
+  controller "moving_wall"
+  supervisor TRUE
+}
+Pioneer3at {
+  translation -5.75 -4.53 0
+  rotation 0 0 1 -1.5707953071795862
+  name "Pioneer 3-AT(4)"
+  controller "moving_wall"
+  supervisor TRUE
+}
+Pioneer3at {
+  translation -2.1 -5.72 0
+  rotation 0 0 1 1.5708
+  name "Pioneer 3-AT(1)"
+  controller "moving_wall"
+  supervisor TRUE
+}
+Pioneer3at {
+  translation 4.75 -5.72 0
+  rotation 0 0 1 1.5708
+  name "Pioneer 3-AT(3)"
+  controller "moving_wall"
+  supervisor TRUE
 }
