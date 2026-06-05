@@ -2,120 +2,169 @@ from controller import Supervisor
 import numpy as np
 import math
 import sys
+import os
+import csv
+import datetime
+
+# Inject the parent src/ folder path so this agent can locate local utilities if needed
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src')))
 
 # ==========================================
-# 1. ARCHITECTURE MODE SWITCH
+# 1. ARCHITECTURE MODE SWITCH (ENVIRONMENT DRIVEN)
 # ==========================================
-NAVIGATION_MODE = "PURE_DSTAR"
+NAVIGATION_MODE = os.environ.get("MIST_NAV_MODE", "PURE_PPO")
+OUTPUT_DIRECTORY = os.environ.get("MIST_OUT_DIR", ".")
 
-# ==========================================
-# 2. CORE INITIALIZATION & PRIVILEGE CHECKS
-# ==========================================
+CSV_FILENAME = os.path.join(OUTPUT_DIRECTORY, f"{NAVIGATION_MODE}_performance_log.csv")
+file_exists = os.path.isfile(CSV_FILENAME)
+
+csv_file = open(CSV_FILENAME, mode='a', newline='', encoding='utf-8')
+csv_writer = csv.writer(csv_file)
+
+if not file_exists:
+    csv_writer.writerow([
+        "Timestamp_Wall_Clock", "Lane_Index", "Navigation_Mode", "Time_Taken_Seconds", "Distance_Traveled_Meters"
+    ])
+    csv_file.flush()
+
 robot = Supervisor()
 timestep = int(robot.getBasicTimeStep())
 
 robot_node = robot.getSelf()
 if robot_node is None:
-    print("❌ SYSTEM CRITICAL: robot.getSelf() returned None! Grant supervisor privileges.")
+    print("❌ SYSTEM CRITICAL: robot.getSelf() returned None! Ensure supervisor is checked TRUE in the Scene Tree.")
     sys.exit(1)
 
 # ==========================================
-# 3. AUTOMATED HARDWARE DISCOVERY LAYER
+# 2. E-PUCK HARDWARE INITIALIZATION DISCOVERY LAYER
 # ==========================================
-lidar = None
-camera = None
-discovered_motors = []
-device_count = robot.getNumberOfDevices()
-
-for i in range(device_count):
-    device = robot.getDeviceByIndex(i)
-    class_name = device.__class__.__name__
-
-    if class_name == "Lidar" and lidar is None:
-        lidar = device
-    elif class_name == "Camera" and camera is None:
-        camera = device
-    elif class_name == "Motor":
-        discovered_motors.append(device)
-
-if lidar:
-    lidar.enable(timestep)
-else:
-    print("❌ SYSTEM CRITICAL: Scanning LiDAR sensor could not be found anywhere on this robot!")
-    sys.exit(1)
-
-if camera:
-    camera.enable(timestep)
-
-wheels = [None, None]
-for motor in discovered_motors:
-    motor_name = motor.getName().lower()
-    if "left" in motor_name or "m1" in motor_name:
-        wheels[0] = motor
-    elif "right" in motor_name or "m2" in motor_name:
-        wheels[1] = motor
-
-if wheels[0] is None or wheels[1] is None:
-    if len(discovered_motors) >= 2:
-        wheels = [discovered_motors[0], discovered_motors[1]]
-    else:
-        print("❌ SYSTEM CRITICAL: Differential wheel motors missing!")
-        sys.exit(1)
-
+wheels = [robot.getDevice("left wheel motor"), robot.getDevice("right wheel motor")]
 for w in wheels:
     w.setPosition(float('inf'))
     w.setVelocity(0.0)
 
-# ==========================================
-# 4. ENVIRONMENT & KINEMATIC MATRIX SETTINGS
-# ==========================================
+proximity_sensors = []
+for i in range(8):
+    ps = robot.getDevice(f"ps{i}")
+    ps.enable(timestep)
+    proximity_sensors.append(ps)
+
+camera = robot.getDevice("camera")
+if camera:
+    camera.enable(timestep)
+
 START_ARRAY = [
-    [-8.8541, 3.13013, -0.000217358],  # Lane 0
-    [-8.8541, 0.370129, -0.000217358],  # Lane 1
-    [-8.8541, -2.36987, -0.000217358]  # Lane 2
+    [-8.8541, 3.13013, 0.0],  # Lane 0
+    [-8.8541, 0.370129, 0.0],  # Lane 1
+    [-8.8541, -2.36987, 0.0],  # Lane 2
+    [-8.8541, -5.12987, 0.0]  # Lane 3
 ]
 
 GOAL_ARRAY = [
-    [10.6659, 3.13013, -0.000217358],  # Lane 0 Exit Line
-    [10.6659, 0.370129, -0.000217358],  # Lane 1 Exit Line
-    [10.6659, -2.36987, -0.000217358]  # Lane 2 Exit Line
+    [10.6659, 3.13013, 0.0],
+    [10.6659, 0.370129, 0.0],
+    [10.6659, -2.36987, 0.0],
+    [10.6659, -5.12987, 0.0]
 ]
 
 START_ROT = [0, 0, 1, 0]
 current_lane_index = 0
 num_lanes = len(START_ARRAY)
+MAX_SPEED = 6.28  # E-puck maximum motor velocity limit in rad/s
+lane_start_sim_time = 0.0
+lane_distance_traveled = 0.0
+previous_position = None
 
-MAX_SPEED = 6.28
+# ==========================================
+# 3. NATIVE EMBEDDED GYMNASIUM TRANSLATION WRAPPER
+# ==========================================
+import gymnasium as gym
+from gymnasium import spaces
+
+
+class MistNavEnv(gym.Env):
+    def __init__(self, robot_supervisor, wheels, proximity_sensors):
+        super(MistNavEnv, self).__init__()
+        self.robot = robot_supervisor
+        self.wheels = wheels
+        self.proximity_sensors = proximity_sensors
+        self.timestep = int(self.robot.getBasicTimeStep())
+        self.robot_node = self.robot.getSelf()
+
+        # Continuous Space: [Forward Velocity, Angular Velocity]
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32)
+        # Observations: 8 proximity metrics + 2 current wheel velocity states
+        self.observation_space = spaces.Box(low=0.0, high=4096.0, shape=(10,), dtype=np.float32)
+        self.current_lane = 0
+
+    def _get_obs(self):
+        prox_values = np.array([ps.getValue() for ps in self.proximity_sensors], dtype=np.float32)
+        v_linear = (self.wheels[0].getVelocity() + self.wheels[1].getVelocity()) / 2.0
+        w_angular = (self.wheels[0].getVelocity() - self.wheels[1].getVelocity()) / 0.053
+        return np.concatenate([prox_values, [v_linear, w_angular]]).astype(np.float32)
+
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
+        start_pos = START_ARRAY[self.current_lane]
+        self.robot_node.getField("translation").setSFVec3f(start_pos)
+        self.robot_node.getField("rotation").setSFRotation(START_ROT)
+        self.robot_node.resetPhysics()
+        for w in self.wheels:
+            w.setVelocity(0.0)
+        self.robot.step(self.timestep)
+        return self._get_obs(), {}
+
+    def step(self, action):
+        base_velocity = float(action[0]) * 4.0
+        angular_velocity = float(action[1]) * 2.0
+
+        self.wheels[0].setVelocity(np.clip(base_velocity + angular_velocity, -6.28, 6.28))
+        self.wheels[1].setVelocity(np.clip(base_velocity - angular_velocity, -6.28, 6.28))
+
+        self.robot.step(self.timestep)
+
+        obs = self._get_obs()
+        pos = self.robot_node.getPosition()
+
+        max_front_prox = np.max([obs[0], obs[1], obs[6], obs[7]])
+        reward = 0.2 * base_velocity
+
+        if max_front_prox > 800.0:
+            reward -= 2.0
+
+        terminated = False
+        if pos[0] >= GOAL_ARRAY[self.current_lane][0]:
+            terminated = True
+            reward += 100.0
+            self.current_lane = (self.current_lane + 1) % 4
+
+        if max_front_prox > 3000.0:
+            terminated = True
+            reward -= 20.0
+
+        return obs, float(reward), terminated, False, {}
 
 
 # ==========================================
-# 5. ALGORITHM MODEL A: STANDALONE D* LITE ENGINE
+# 4. ALGORITHMIC NAVIGATION MODELS (D* LITE)
 # ==========================================
 class DStarLitePlanner:
-    def __init__(self, x_bounds=(-10.0, 12.0), y_bounds=(-5.0, 5.0), resolution=0.15):
+    def __init__(self, x_bounds=(-10.0, 12.0), y_bounds=(-5.0, 5.0), resolution=0.2):
         self.res = resolution
         self.x_min, self.x_max = x_bounds
         self.y_min, self.y_max = y_bounds
-
-        self.g = {}
-        self.rhs = {}
-        self.U = {}
+        self.g, self.rhs, self.U = {}, {}, {}
         self.km = 0.0
         self.obstacles = set()
-
         self.path_waypoints = []
         self.start_cell = None
         self.goal_cell = None
 
     def w_to_g(self, coord):
-        gx = int(round((coord[0] - self.x_min) / self.res))
-        gy = int(round((coord[1] - self.y_min) / self.res))
-        return (gx, gy)
+        return (int(round((coord[0] - self.x_min) / self.res)), int(round((coord[1] - self.y_min) / self.res)))
 
     def g_to_w(self, cell):
-        wx = self.x_min + cell[0] * self.res
-        wy = self.y_min + cell[1] * self.res
-        return [wx, wy]
+        return [self.x_min + cell[0] * self.res, self.y_min + cell[1] * self.res]
 
     def get_neighbors(self, u):
         neighbors = []
@@ -130,116 +179,92 @@ class DStarLitePlanner:
 
     def calculate_key(self, s):
         g_rhs = min(self.g.get(s, float('inf')), self.rhs.get(s, float('inf')))
-        k1 = g_rhs + self.h(self.start_cell, s) + self.km
-        k2 = g_rhs
-        return (k1, k2)
+        return (g_rhs + self.h(self.start_cell, s) + self.km, g_rhs)
 
     def initialize(self, start_w, goal_w):
-        self.g.clear()
-        self.rhs.clear()
-        self.U.clear()
-        self.km = 0.0
+        self.g.clear();
+        self.rhs.clear();
+        self.U.clear();
+        self.km = 0.0;
         self.obstacles.clear()
-
         self.start_cell = self.w_to_g(start_w)
         self.goal_cell = self.w_to_g(goal_w)
-
         self.rhs[self.goal_cell] = 0.0
         self.U[self.goal_cell] = self.calculate_key(self.goal_cell)
 
     def cost(self, u, v):
-        if u in self.obstacles or v in self.obstacles:
-            return float('inf')
+        if u in self.obstacles or v in self.obstacles: return float('inf')
         return self.h(u, v)
 
     def update_vertex(self, u):
         if u != self.goal_cell:
-            min_rhs = float('inf')
-            for v in self.get_neighbors(u):
-                min_rhs = min(min_rhs, self.g.get(v, float('inf')) + self.cost(u, v))
-            self.rhs[u] = min_rhs
-
-        if u in self.U:
-            del self.U[u]
-
-        if self.g.get(u, float('inf')) != self.rhs.get(u, float('inf')):
-            self.U[u] = self.calculate_key(u)
+            self.rhs[u] = min(self.g.get(v, float('inf')) + self.cost(u, v) for v in self.get_neighbors(u))
+        if u in self.U: del self.U[u]
+        if self.g.get(u, float('inf')) != self.rhs.get(u, float('inf')): self.U[u] = self.calculate_key(u)
 
     def compute_shortest_path(self):
-        while len(self.U) > 0 and (min(self.U.values()) < self.calculate_key(self.start_cell) or
-                                   self.rhs.get(self.start_cell, float('inf')) != self.g.get(self.start_cell,
-                                                                                             float('inf'))):
+        while len(self.U) > 0 and (
+                min(self.U.values()) < self.calculate_key(self.start_cell) or self.rhs.get(self.start_cell,
+                                                                                           float('inf')) != self.g.get(
+            self.start_cell, float('inf'))):
             u = min(self.U, key=self.U.get)
             k_old = self.U[u]
             k_new = self.calculate_key(u)
-
             if k_old < k_new:
                 self.U[u] = k_new
             elif self.g.get(u, float('inf')) > self.rhs.get(u, float('inf')):
                 self.g[u] = self.rhs[u]
                 del self.U[u]
-                for v in self.get_neighbors(u):
-                    self.update_vertex(v)
+                for v in self.get_neighbors(u): self.update_vertex(v)
             else:
                 self.g[u] = float('inf')
                 self.update_vertex(u)
-                for v in self.get_neighbors(u):
-                    self.update_vertex(v)
+                for v in self.get_neighbors(u): self.update_vertex(v)
 
     def generate_waypoints(self):
         path = []
         curr = self.start_cell
-        max_steps = 400
-        steps = 0
-
-        while curr != self.goal_cell and steps < max_steps:
+        while curr != self.goal_cell and len(path) < 300:
             path.append(self.g_to_w(curr))
-            min_cost = float('inf')
-            next_node = None
-            for v in self.get_neighbors(curr):
-                move_cost = self.cost(curr, v) + self.g.get(v, float('inf'))
-                if move_cost < min_cost:
-                    min_cost = move_cost
-                    next_node = v
-            if next_node is None or min_cost == float('inf'):
-                break
+            next_node = min(self.get_neighbors(curr), key=lambda v: self.cost(curr, v) + self.g.get(v, float('inf')),
+                            default=None)
+            if next_node is None or (self.cost(curr, next_node) + self.g.get(next_node, float('inf'))) == float(
+                'inf'): break
             curr = next_node
-            steps += 1
-
         path.append(self.g_to_w(self.goal_cell))
         self.path_waypoints = path
 
-    def sense_and_replan(self, current_w, horizon, current_yaw, H_RES, DEG_PER_INDEX):
+    def sense_and_replan(self, current_w, prox_values, current_yaw):
         self.start_cell = self.w_to_g(current_w)
-        changed_detected = False
-        half_res = H_RES // 2
+        current_frame_obstacles = set()
+        sensor_angles = [0.29, 1.05, 1.57, 2.36, -2.36, -1.57, -1.05, -0.29]
 
-        for idx in range(H_RES):
-            dist = horizon[idx]
-            if dist < 0.40:
-                if idx <= half_res:
-                    ray_angle = math.radians(idx * DEG_PER_INDEX)
-                else:
-                    ray_angle = math.radians((idx - H_RES) * DEG_PER_INDEX)
+        for idx, val in enumerate(prox_values):
+            if val > 600.0:
+                dist_est = 0.08 - (val / 4096.0) * 0.06
+                global_ang = current_yaw + sensor_angles[idx]
+                obs_cell = self.w_to_g(
+                    [current_w[0] + dist_est * math.cos(global_ang), current_w[1] + dist_est * math.sin(global_ang)])
+                for dx in [-1, 0, 1]:
+                    for dy in [-1, 0, 1]:
+                        inflated = (obs_cell[0] + dx, obs_cell[1] + dy)
+                        if inflated != self.start_cell and inflated != self.goal_cell: current_frame_obstacles.add(
+                            inflated)
 
-                global_ang = current_yaw + ray_angle
-                ox = current_w[0] + dist * math.cos(global_ang)
-                oy = current_w[1] + dist * math.sin(global_ang)
-                obs_cell = self.w_to_g([ox, oy])
-
-                if obs_cell not in self.obstacles and obs_cell != self.start_cell and obs_cell != self.goal_cell:
-                    for dx in [-2, -1, 0, 1, 2]:
-                        for dy in [-2, -1, 0, 1, 2]:
-                            inflated_cell = (obs_cell[0] + dx, obs_cell[1] + dy)
-                            if inflated_cell != self.start_cell and inflated_cell != self.goal_cell:
-                                self.obstacles.add(inflated_cell)
-                                for n in self.get_neighbors(inflated_cell):
-                                    self.update_vertex(n)
-                                self.update_vertex(inflated_cell)
-                    changed_detected = True
-
-        if changed_detected:
-            print("🧱 D* LITE MAP UPDATE: Map Node Change Registered! Recalculating Matrix Paths...")
+        new_obs = current_frame_obstacles - self.obstacles
+        cleared_obs = self.obstacles - current_frame_obstacles
+        changed = False
+        for cell in new_obs:
+            self.obstacles.add(cell)
+            self.update_vertex(cell)
+            for n in self.get_neighbors(cell): self.update_vertex(n)
+            changed = True
+        for cell in cleared_obs:
+            self.obstacles.remove(cell)
+            self.update_vertex(cell)
+            for n in self.get_neighbors(cell): self.update_vertex(n)
+            changed = True
+        if changed:
             self.compute_shortest_path()
             self.generate_waypoints()
 
@@ -248,186 +273,250 @@ dstar = DStarLitePlanner()
 
 
 def reset_to_lane(lane_idx):
-    """Teleports the e-puck to the beginning of the selected lane."""
+    global lane_start_sim_time, lane_distance_traveled, previous_position
     start_pos = START_ARRAY[lane_idx]
     goal_pos = GOAL_ARRAY[lane_idx]
-    print(f"🚀 TELEPORTING E-PUCK TO LANE {lane_idx} -> Coordinates: {start_pos}")
     robot_node.getField("translation").setSFVec3f(start_pos)
     robot_node.getField("rotation").setSFRotation(START_ROT)
     robot_node.resetPhysics()
-    for w in wheels:
-        w.setVelocity(0.0)
-
-    if NAVIGATION_MODE == "PURE_DSTAR":
+    for w in wheels: w.setVelocity(0.0)
+    if hasattr(reset_to_lane, "is_pivoting"): reset_to_lane.is_pivoting = False
+    if robot.getTime() > 0.5 and NAVIGATION_MODE == "PURE_DSTAR":
         dstar.initialize(start_pos[:2], goal_pos[:2])
         dstar.compute_shortest_path()
         dstar.generate_waypoints()
+    lane_start_sim_time = robot.getTime()
+    lane_distance_traveled = 0.0
+    previous_position = np.array([start_pos[0], start_pos[1]])
 
-
-reset_to_lane(current_lane_index)
-
-start_time = robot.getTime()
-while robot.step(timestep) != -1:
-    if robot.getTime() - start_time >= 1.0:
-        break
-
-H_RES = lidar.getHorizontalResolution()
-half_res = H_RES // 2
-DEG_PER_INDEX = 360.0 / H_RES
-
-K_ATTRACTIVE = 2.5
-K_REPULSIVE = 0.08
-INFLUENCE_DIST = 0.45
-WINDOW_SIZE = 2
-
-last_metric_print_time = 0.0
 
 # ==========================================
-# 6. MAIN NAVIGATION CONTROLLER LOOP
+# 5. CORE EXECUTION ENGINE CONTROL
 # ==========================================
-while robot.step(timestep) != -1:
-    pos = robot_node.getPosition()
-    curr_time = robot.getTime()
+if NAVIGATION_MODE == "PURE_PPO" and not os.environ.get("MIST_EVAL_PPO"):
+    # ----------------------------------------------------------------
+    # NATIVE REINFORCEMENT LEARNING TRAINING LOOP
+    # ----------------------------------------------------------------
+    print("⏳ DETECTED PURE_PPO MODE: Spawning Stable-Baselines3 RL Engine directly inside Webots...")
+    from stable_baselines3 import PPO
 
-    if camera:
-        camera.getImage()
+    env = MistNavEnv(robot, wheels, proximity_sensors)
 
-    active_goal_x = GOAL_ARRAY[current_lane_index][0]
-    if pos[0] >= active_goal_x:
-        print(f"🏁 GOAL MET: Lane {current_lane_index} cleared successfully!")
-        current_lane_index = (current_lane_index + 1) % num_lanes
-        reset_to_lane(current_lane_index)
-        continue
+    model = PPO(
+        "MlpPolicy",
+        env,
+        verbose=1,
+        learning_rate=3e-4,
+        n_steps=512,
+        batch_size=64,
+        tensorboard_log=os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "..", "ppo_mist_tensorboard"))
+    )
 
-    # CORRECT COMPASS MATRIX TRANSFORMATION
-    rot_matrix = robot_node.getOrientation()
-    current_yaw = math.atan2(rot_matrix[3], rot_matrix[0]) - (math.pi / 2.0)
-    current_yaw = (current_yaw + math.pi) % (2 * math.pi) - math.pi
+    print("🚀 Initiating Neural Weights Matrix Optimization Loop (40,000 steps)...")
+    model.learn(total_timesteps=40000)
 
-    lidar_raw = lidar.getRangeImage()
-    if lidar_raw is None:
-        continue
-    horizon = np.array(lidar_raw)
-    horizon[np.isinf(horizon)] = 3.0
-    horizon[horizon <= 0.05] = 3.0
+    save_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "saved_models"))
+    os.makedirs(save_directory, exist_ok=True)
+    model.save(os.path.join(save_directory, "ppo_mist_optimal_model"))
 
-    if NAVIGATION_MODE == "PURE_APF":
-        # ============================================================
-        # MODEL 1: PURE ARTIFICIAL POTENTIAL FIELDS CONTROLLER
-        # ============================================================
-        target_pos = np.array([GOAL_ARRAY[current_lane_index][0], GOAL_ARRAY[current_lane_index][1]])
-        robot_pos = np.array([pos[0], pos[1]])
+    print(f"💾 SUCCESS: Model weights safely archived inside: {save_directory}")
+    csv_file.close()
+    robot.simulationQuit(0)
+    sys.exit(0)
 
-        vec_to_goal = target_pos - robot_pos
-        dist_to_goal = np.linalg.norm(vec_to_goal)
-        f_att = K_ATTRACTIVE * (vec_to_goal / dist_to_goal) if dist_to_goal > 0 else np.array([0.0, 0.0])
+else:
+    # ----------------------------------------------------------------
+    # ALGORITHMIC MODE & PPO EVALUATION MODE WITH STALL TIMEOUTS
+    # ----------------------------------------------------------------
+    # --- TIMEOUT GATES ---
+    MAX_LANE_DURATION = 90.0  # Absolute maximum seconds allowed per corridor lane
+    STALL_CHECK_INTERVAL = 10.0  # Evaluation look-back frequency for deadlocks
+    STALL_DISTANCE_THRESHOLD = 0.05  # Robot must cross at least 5cm every 10 seconds
 
-        f_rep = np.array([0.0, 0.0])
-        for idx in range(H_RES):
-            dist_reading = horizon[idx]
+    start_pos = START_ARRAY[current_lane_index]
+    robot_node.getField("translation").setSFVec3f(start_pos)
+    robot_node.getField("rotation").setSFRotation(START_ROT)
+    robot_node.resetPhysics()
 
-            is_local_minimum = True
-            for offset in range(-WINDOW_SIZE, WINDOW_SIZE + 1):
-                neighbor_idx = (idx + offset) % H_RES
-                if horizon[neighbor_idx] < dist_reading:
-                    is_local_minimum = False
-                    break
+    start_time = robot.getTime()
+    while robot.step(timestep) != -1:
+        if robot.getTime() - start_time >= 1.0: break
 
-            if not is_local_minimum:
+    pos_init = robot_node.getPosition()
+    goal_pos_init = GOAL_ARRAY[current_lane_index]
+
+    if NAVIGATION_MODE == "PURE_DSTAR":
+        dstar.initialize(pos_init[:2], goal_pos_init[:2])
+        dstar.compute_shortest_path()
+        dstar.generate_waypoints()
+    elif NAVIGATION_MODE == "PURE_PPO":
+        from stable_baselines3 import PPO
+
+        model_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "..", "saved_models", "ppo_mist_optimal_model.zip"))
+        if os.path.exists(model_path):
+            model = PPO.load(model_path)
+            env = MistNavEnv(robot, wheels, proximity_sensors)
+            obs, _ = env.reset()
+        else:
+            print(f"❌ Model missing at {model_path}! Run training first.")
+            robot.simulationQuit(1)
+            sys.exit(1)
+
+    lane_start_sim_time = robot.getTime()
+    previous_position = np.array([pos_init[0], pos_init[1]])
+
+    last_stall_check_time = robot.getTime()
+    last_stall_check_position = np.array([pos_init[0], pos_init[1]])
+
+    K_ATTRACTIVE = float(os.environ.get("MIST_K_ATT", 2.0))
+    K_REPULSIVE = float(os.environ.get("MIST_K_REP", 0.05))
+    LOOKAHEAD_INDEX = int(os.environ.get("MIST_LOOKAHEAD", 1))
+    reset_to_lane.is_pivoting = False
+
+    try:
+        while robot.step(timestep) != -1:
+            pos = robot_node.getPosition()
+            curr_time = robot.getTime()
+            current_position_2d = np.array([pos[0], pos[1]])
+
+            if previous_position is not None:
+                step_distance = np.linalg.norm(current_position_2d - previous_position)
+                if step_distance < 0.5: lane_distance_traveled += step_distance
+            previous_position = current_position_2d
+
+            time_spent_in_lane = curr_time - lane_start_sim_time
+
+            # --- GUARD 1: HARD LANE TIMEOUT LIMIT ---
+            if time_spent_in_lane > MAX_LANE_DURATION:
+                print(
+                    f"⚠️ TIMEOUT LIMIT EXCEEDED: Lane {current_lane_index} took > {MAX_LANE_DURATION}s. Terminating run.")
+                csv_writer.writerow([
+                    datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), current_lane_index,
+                    f"{NAVIGATION_MODE}_FAILED_TIMEOUT", round(time_spent_in_lane, 3), round(lane_distance_traveled, 3)
+                ])
+                csv_file.flush()
+
+                current_lane_index = (current_lane_index + 1) % num_lanes
+                if current_lane_index == 0:
+                    csv_file.close()
+                    robot.simulationQuit(0)
+                    sys.exit(0)
+                reset_to_lane(current_lane_index)
+                last_stall_check_time = robot.getTime()
+                last_stall_check_position = current_position_2d
                 continue
 
-            if dist_reading < INFLUENCE_DIST and dist_reading > 0.01:
-                if idx <= half_res:
-                    ray_angle_rad = math.radians(idx * DEG_PER_INDEX)
+            # --- GUARD 2: POSITION STALL DETECTION (LOCAL MINIMA) ---
+            if curr_time - last_stall_check_time >= STALL_CHECK_INTERVAL:
+                moved_distance = np.linalg.norm(current_position_2d - last_stall_check_position)
+                if moved_distance < STALL_DISTANCE_THRESHOLD:
+                    print(
+                        f"🛑 STALL/LOCAL MINIMA DETECTED: Moved only {moved_distance:.3f}m in {STALL_CHECK_INTERVAL}s. Skipping lane.")
+                    csv_writer.writerow([
+                        datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), current_lane_index,
+                        f"{NAVIGATION_MODE}_LOCAL_MINIMA_STALL", round(time_spent_in_lane, 3),
+                        round(lane_distance_traveled, 3)
+                    ])
+                    csv_file.flush()
+
+                    current_lane_index = (current_lane_index + 1) % num_lanes
+                    if current_lane_index == 0:
+                        csv_file.close()
+                        robot.simulationQuit(0)
+                        sys.exit(0)
+                    reset_to_lane(current_lane_index)
+                    last_stall_check_time = robot.getTime()
+                    last_stall_check_position = current_position_2d
+                    continue
+
+                last_stall_check_time = curr_time
+                last_stall_check_position = current_position_2d
+
+            # --- GOAL ARRIVAL CHECKS ---
+            active_goal_x = GOAL_ARRAY[current_lane_index][0]
+            if pos[0] >= active_goal_x:
+                print(
+                    f"🏁 GOAL MET: Lane {current_lane_index} cleared in {time_spent_in_lane:.2f}s | Dist: {lane_distance_traveled:.2f}m")
+                csv_writer.writerow([
+                    datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), current_lane_index, NAVIGATION_MODE,
+                    round(time_spent_in_lane, 3), round(lane_distance_traveled, 3)
+                ])
+                csv_file.flush()
+
+                current_lane_index = (current_lane_index + 1) % num_lanes
+                if current_lane_index == 0:
+                    print("🎯 BATCH RUN TERMINATION: All lanes complete.")
+                    csv_file.close()
+                    robot.simulationQuit(0)
+                    sys.exit(0)
+
+                reset_to_lane(current_lane_index)
+                last_stall_check_time = robot.getTime()
+                last_stall_check_position = current_position_2d
+                continue
+
+            # --- SENSOR DEPLOYMENT AND MOTION CONTROL ---
+            rot_matrix = robot_node.getOrientation()
+            current_yaw = math.atan2(rot_matrix[0], rot_matrix[1])
+            prox_values = np.array([ps.getValue() for ps in proximity_sensors])
+
+            if NAVIGATION_MODE == "PURE_APF":
+                target_pos = np.array([GOAL_ARRAY[current_lane_index][0], GOAL_ARRAY[current_lane_index][1]])
+                vec_to_goal = target_pos - current_position_2d
+                dist_to_goal = np.linalg.norm(vec_to_goal)
+                f_att = K_ATTRACTIVE * (vec_to_goal / dist_to_goal) if dist_to_goal > 0 else np.array([0.0, 0.0])
+
+                f_rep = np.array([0.0, 0.0])
+                sensor_angles = [0.29, 1.05, 1.57, 2.36, -2.36, -1.57, -1.05, -0.29]
+                for idx, val in enumerate(prox_values):
+                    if val > 400.0:
+                        global_ray_angle = current_yaw + sensor_angles[idx]
+                        vec_away = np.array([-math.cos(global_ray_angle), -math.sin(global_ray_angle)])
+                        f_rep += K_REPULSIVE * (val / 4096.0) * vec_away
+
+                f_total = f_att + f_rep
+                desired_heading = math.atan2(f_total[1], f_total[0])
+                heading_error_rad = (desired_heading - current_yaw + math.pi) % (2 * math.pi) - math.pi
+
+                base_velocity = np.clip(np.linalg.norm(f_total) * 2.0, 1.0, 4.0)
+                if abs(heading_error_rad) > 0.5: base_velocity *= 0.2
+                angular_velocity = np.clip(heading_error_rad * 3.0, -2.0, 2.0)
+
+            elif NAVIGATION_MODE == "PURE_DSTAR":
+                dstar.sense_and_replan(pos[:2], prox_values, current_yaw)
+                if len(dstar.path_waypoints) > 0:
+                    target_idx = min(LOOKAHEAD_INDEX, len(dstar.path_waypoints) - 1)
+                    active_waypoint = dstar.path_waypoints[target_idx]
                 else:
-                    ray_angle_rad = math.radians((idx - H_RES) * DEG_PER_INDEX)
+                    active_waypoint = [pos[0] + 0.1, GOAL_ARRAY[current_lane_index][1]]
 
-                global_ray_angle = current_yaw + ray_angle_rad
-                vec_away_from_wall = np.array([-math.cos(global_ray_angle), -math.sin(global_ray_angle)])
+                desired_heading = math.atan2(active_waypoint[1] - pos[1], active_waypoint[0] - pos[0])
+                heading_error_rad = (desired_heading - current_yaw + math.pi) % (2 * math.pi) - math.pi
 
-                factor = (1.0 / dist_reading) - (1.0 / INFLUENCE_DIST)
-                magnitude = K_REPULSIVE * factor * (1.0 / (dist_reading ** 2))
-                f_rep += magnitude * vec_away_from_wall
+                base_velocity = 3.5
+                max_front_prox = max(prox_values[0], prox_values[7])
+                if max_front_prox > 1000.0: base_velocity *= 0.2
 
-        f_total = f_att + f_rep
+                if abs(heading_error_rad) > 0.4: reset_to_lane.is_pivoting = True
+                if reset_to_lane.is_pivoting:
+                    base_velocity = 0.0
+                    if abs(heading_error_rad) < 0.1: reset_to_lane.is_pivoting = False
+                angular_velocity = np.clip(heading_error_rad * 4.0, -2.5, 2.5)
 
-        desired_heading = math.atan2(f_total[1], f_total[0])
-        heading_error_rad = (desired_heading - current_yaw + math.pi) % (2 * math.pi) - math.pi
+            elif NAVIGATION_MODE == "PURE_PPO":
+                # Evaluation processing logic using the loaded PPO model
+                v_linear = (wheels[0].getVelocity() + wheels[1].getVelocity()) / 2.0
+                w_angular = (wheels[0].getVelocity() - wheels[1].getVelocity()) / 0.053
+                current_obs = np.concatenate([prox_values, [v_linear, w_angular]]).astype(np.float32)
 
-        force_magnitude = np.linalg.norm(f_total)
-        base_velocity = np.clip(force_magnitude * 1.2, 1.0, 4.0)
-        if abs(heading_error_rad) > 0.6:
-            base_velocity *= 0.3
+                action, _ = model.predict(current_obs, deterministic=True)
+                base_velocity = float(action[0]) * 4.0
+                angular_velocity = float(action[1]) * 2.0
 
-        angular_velocity = np.clip(heading_error_rad * 3.5, -2.5, 2.5)
+            wheels[0].setVelocity(np.clip(base_velocity + angular_velocity, -MAX_SPEED, MAX_SPEED))
+            wheels[1].setVelocity(np.clip(base_velocity - angular_velocity, -MAX_SPEED, MAX_SPEED))
 
-    elif NAVIGATION_MODE == "PURE_DSTAR":
-        # ============================================================
-        # MODEL 2: OPTIMIZED PURE D* LITE GEOMETRIC CONTROLLER
-        # ============================================================
-        dstar.sense_and_replan(pos[:2], horizon, current_yaw, H_RES, DEG_PER_INDEX)
-
-        if len(dstar.path_waypoints) > 0:
-            active_waypoint = dstar.path_waypoints[0]
-            dist_to_waypoint = math.hypot(active_waypoint[0] - pos[0], active_waypoint[1] - pos[1])
-
-            # --- FIX 1: INCREASE ACCEPTANCE ENVELOPE TO 0.26m ---
-            if dist_to_waypoint < 0.26 and len(dstar.path_waypoints) > 1:
-                dstar.path_waypoints.pop(0)
-                active_waypoint = dstar.path_waypoints[0]
-                dist_to_waypoint = math.hypot(active_waypoint[0] - pos[0], active_waypoint[1] - pos[1])
-        else:
-            active_waypoint = [GOAL_ARRAY[current_lane_index][0], GOAL_ARRAY[current_lane_index][1]]
-            dist_to_waypoint = math.hypot(active_waypoint[0] - pos[0], active_waypoint[1] - pos[1])
-
-        desired_heading = math.atan2(active_waypoint[1] - pos[1], active_waypoint[0] - pos[0])
-        heading_error_rad = (desired_heading - current_yaw + math.pi) % (2 * math.pi) - math.pi
-
-        # EMERGENCY LIDAR BRAKING MATRIX
-        front_center_idx = H_RES // 2
-        min_front_wall_distance = min(horizon[max(0, front_center_idx - 4): min(H_RES, front_center_idx + 5)])
-
-        # Base translation forward speed
-        base_velocity = 3.0
-
-        if dist_to_waypoint < 0.40:
-            base_velocity = max(0.5, base_velocity * (dist_to_waypoint / 0.40))
-
-        if min_front_wall_distance < 0.40:
-            base_velocity *= (min_front_wall_distance / 0.40)
-
-        # --- FIX 2: ZERO-VELOCITY SPOT TURN MATRIX ---
-        # If alignment error is noticeable, do not crawl forward at all; spin in place.
-        if abs(heading_error_rad) > 0.20:
-            base_velocity = 0.0
-
-            # Increased angular steering sensitivity for rapid rotation snapping
-        angular_velocity = np.clip(heading_error_rad * 7.5, -4.0, 4.0)
-
-    # ----------------------------------------------------------------
-    # DIFFERENTIAL DRIVE KINEMATIC MIXER
-    # ----------------------------------------------------------------
-    v_l = base_velocity - angular_velocity
-    v_r = base_velocity + angular_velocity
-
-    wheels[0].setVelocity(np.clip(v_l, -MAX_SPEED, MAX_SPEED))
-    wheels[1].setVelocity(np.clip(v_r, -MAX_SPEED, MAX_SPEED))
-
-    # ----------------------------------------------------------------
-    # DIAGNOSTIC PROFILE CONSOLE DASHBOARD
-    # ----------------------------------------------------------------
-    if curr_time - last_metric_print_time >= 1.5:
-        last_metric_print_time = curr_time
-        print("=" * 65)
-        print(f"📊 ISOLATED SYSTEM MONITOR LOGS [Time: {curr_time:.2f}s]")
-        print(f"⚙️ Running Model Variant : {NAVIGATION_MODE}")
-        print(
-            f"📍 Robot Coordinates     : X={pos[0]:.2f}, Y={pos[1]:.2f} | Aligned Heading: {math.degrees(current_yaw):.1f}°")
-        if NAVIGATION_MODE == "PURE_DSTAR":
-            print(
-                f"⛓️  Active D* Target Node : X={active_waypoint[0]:.2f}, Y={active_waypoint[1]:.2f} | Distance: {dist_to_waypoint:.2f}m | Nodes Left: {len(dstar.path_waypoints)}")
-            print(f"🚨 Proportional Braking  : Front Clear Buffer Window = {min_front_wall_distance:.2f}m")
-        else:
-            print(f"🚀 APF Net Target Vector  : X-Force={f_total[0]:.2f}, Y-Force={f_total[1]:.2f}")
-        print(f"⚡ Motor Thrust Metrics  : Left={v_l:.2f} rad/s | Right={v_r:.2f} rad/s")
-        print("=" * 65)
+    finally:
+        csv_file.close()

@@ -21,8 +21,8 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 WorldInfo {
 }
 Viewpoint {
-  orientation -0.0003803815955098758 0.9999989782264532 0.0013779898008218624 0.5408009398165479
-  position -13.410338978351998 -3.7853514430307866 7.661502635980989
+  orientation 0.008976683658533633 0.9997975440269723 -0.01800805675604999 0.9247107858547252
+  position -21.31832311635595 -2.6015739413744154 28.619242842180014
 }
 TexturedBackground {
 }
@@ -35,6 +35,48 @@ RectangleArena {
 }
 DEF hallway_2 Group {
   children [
+    Wall {
+      translation 9.4 1 -9.34079e-06
+      rotation -1 0 0 -5.307179586466759e-06
+      name "wall(20)"
+      size 0.2 0.5 0.5
+      appearance Roughcast {
+        colorOverride 1 0.798123 0.344564
+        textureTransform TextureTransform {
+          scale 2.4 1
+        }
+      }
+    }
+    Wall {
+      translation 9.4 -0.25 -1.59745e-05
+      rotation -1 0 0 -5.307179586466759e-06
+      name "wall(21)"
+      size 0.2 0.5 0.5
+      appearance Roughcast {
+        colorOverride 1 0.798123 0.344564
+        textureTransform TextureTransform {
+          scale 2.4 1
+        }
+      }
+    }
+    Wall {
+      translation 6.23 0.75 -1.06673e-05
+      rotation -1 0 0 -5.307179586466759e-06
+      name "wall(22)"
+      size 0.1 1 0.5
+      appearance Roughcast {
+        colorOverride 1 0.798123 0.344564
+        textureTransform TextureTransform {
+          scale 2.4 1
+        }
+      }
+    }
+    TrafficCone {
+      translation 3.29331 -0.0241429 0
+      rotation 0 0 1 -0.785395307179586
+      scale 0.8
+      name "traffic cone(4)"
+    }
     OilBarrel {
       translation 0 0.42 0
       height 0.5
@@ -1483,7 +1525,7 @@ Robot {
       0 0 0
     ]
   }
-  controller "mist_controller"
+  controller "<extern>"
   supervisor TRUE
   cpuConsumption 1.11
 }
@@ -1491,27 +1533,27 @@ Pioneer3at {
   translation 1.64 -4.53 0
   rotation 0 0 1 -1.5707953071795862
   name "Pioneer 3-AT(2)"
-  controller "moving_wall"
+  controller "<none>"
   supervisor TRUE
 }
 Pioneer3at {
   translation -5.75 -4.53 0
   rotation 0 0 1 -1.5707953071795862
   name "Pioneer 3-AT(4)"
-  controller "moving_wall"
+  controller "<none>"
   supervisor TRUE
 }
 Pioneer3at {
   translation -2.1 -5.72 0
   rotation 0 0 1 1.5708
   name "Pioneer 3-AT(1)"
-  controller "moving_wall"
+  controller "<none>"
   supervisor TRUE
 }
 Pioneer3at {
   translation 4.75 -5.72 0
   rotation 0 0 1 1.5708
   name "Pioneer 3-AT(3)"
-  controller "moving_wall"
+  controller "<none>"
   supervisor TRUE
 }

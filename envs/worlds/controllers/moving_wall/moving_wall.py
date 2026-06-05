@@ -40,7 +40,7 @@ def main():
         motor.setVelocity(0.0)
 
     # 3. Define movement configurations
-    CRUISE_SPEED = 3.0
+    CRUISE_SPEED = 2.0
     LEG_DURATION = 4.0  # Seconds spent driving forward/backward before swapping
 
     # 4. RANDOM INITIALIZATION DELAY (Desynchronization Step)
