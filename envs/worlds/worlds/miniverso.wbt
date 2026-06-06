@@ -11,7 +11,6 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/street_furniture/protos/FireHydrant.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/factory/containers/protos/CardboardBox.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/garden/protos/Gnome.proto"
-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/plants/protos/FlowerPot.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/traffic/protos/TrafficCone.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/appearances/protos/Copper.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/robots/gctronic/e-puck/protos/E-puckDistanceSensor.proto"
@@ -21,8 +20,8 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 WorldInfo {
 }
 Viewpoint {
-  orientation 0.008976683658533633 0.9997975440269723 -0.01800805675604999 0.9247107858547252
-  position -21.31832311635595 -2.6015739413744154 28.619242842180014
+  orientation -0.11351658693920377 0.9005269682182889 0.4197203402281703 0.5835488557697397
+  position -22.207496356958757 -2.8594815031278493 11.432819749984386
 }
 TexturedBackground {
 }
@@ -124,53 +123,6 @@ DEF hallway_1 Group {
       size 0.1 2 0.5
     }
     Wall {
-      translation -6.13 2.75 -5.30717e-08
-      rotation -1 0 0 -5.307179586466759e-06
-      size 0.2 1 0.5
-      appearance Roughcast {
-        colorOverride 1 0.798123 0.344564
-        textureTransform TextureTransform {
-          scale 2.4 1
-        }
-      }
-    }
-    Wall {
-      translation -3.63 3.5 3.92732e-06
-      rotation -1 0 0 -5.307179586466759e-06
-      name "wall(1)"
-      size 0.2 1 0.5
-      appearance Roughcast {
-        colorOverride 1 0.798123 0.344564
-        textureTransform TextureTransform {
-          scale 2.4 1
-        }
-      }
-    }
-    Wall {
-      translation 2.5 3.5 3.92732e-06
-      rotation -1 0 0 -5.307179586466759e-06
-      name "wall(3)"
-      size 0.2 1 0.5
-      appearance Roughcast {
-        colorOverride 1 0.798123 0.344564
-        textureTransform TextureTransform {
-          scale 2.4 1
-        }
-      }
-    }
-    Wall {
-      translation 6.23 2.74 -1.06226e-07
-      rotation -1 0 0 -5.307179586466759e-06
-      name "wall(4)"
-      size 0.2 1 0.5
-      appearance Roughcast {
-        colorOverride 1 0.798123 0.344564
-        textureTransform TextureTransform {
-          scale 2.4 1
-        }
-      }
-    }
-    Wall {
       translation 9.4 2.5 -1.37997e-06
       rotation -1 0 0 -5.307179586466759e-06
       name "wall(5)"
@@ -187,18 +139,6 @@ DEF hallway_1 Group {
       rotation -1 0 0 -5.307179586466759e-06
       name "wall(6)"
       size 0.2 0.5 0.5
-      appearance Roughcast {
-        colorOverride 1 0.798123 0.344564
-        textureTransform TextureTransform {
-          scale 2.4 1
-        }
-      }
-    }
-    Wall {
-      translation -0.51 3.12 1.91064e-06
-      rotation -1 0 0 -5.307179586466759e-06
-      name "wall(2)"
-      size 0.2 0.7 0.5
       appearance Roughcast {
         colorOverride 1 0.798123 0.344564
         textureTransform TextureTransform {
@@ -287,34 +227,14 @@ DEF hallway_3 Group {
       size 0.1 2 0.5
     }
     TrafficCone {
-      translation 6.46 -1.82 0
-      scale 0.8
-    }
-    TrafficCone {
       translation 7.66 -1.82 0
       scale 0.8
       name "traffic cone(1)"
     }
     TrafficCone {
-      translation 7.66 -2.82 0
-      scale 0.8
-      name "traffic cone(2)"
-    }
-    TrafficCone {
       translation 8.81 -2.82 0
       scale 0.8
       name "traffic cone(3)"
-    }
-    FlowerPot {
-      translation 3.41 -2.34 0
-    }
-    FlowerPot {
-      translation 3.85 -2.6 0
-      name "flower pot(1)"
-    }
-    FlowerPot {
-      translation 4.36 -1.9 0
-      name "flower pot(2)"
     }
     Gnome {
       translation 3.68 -3.08 0
@@ -331,12 +251,7 @@ DEF hallway_3 Group {
       height 0.5
     }
     CardboardBox {
-      translation -3.1017 -1.90295 0.23
-      rotation 0 0 1 -0.261795307179586
-      size 0.6 0.6 0.45
-    }
-    CardboardBox {
-      translation -2.33352 -1.93818 0.24
+      translation -2.72296 -1.94364 0.24
       rotation 0 0 1 -1.047195307179586
       name "cardboard box(1)"
       size 0.6 0.6 0.45
@@ -380,16 +295,6 @@ DEF hallway_3 Group {
       rotation -1 0 0 -5.307179586466759e-06
       name "wall(12)"
       size 0.2 1 0.5
-      appearance PBRAppearance {
-        transparency 0.5
-        roughness 1
-      }
-    }
-    Wall {
-      translation 2.38 -2.95 -3.03054e-05
-      rotation -1 0 0 -5.307179586466759e-06
-      name "wall(10)"
-      size 0.2 0.6 0.5
       appearance PBRAppearance {
         transparency 0.5
         roughness 1
@@ -447,7 +352,7 @@ DEF hallway_3 Group {
 }
 Robot {
   translation -8.381460160737667 3.1301299999786183 -6.394219566571886e-05
-  rotation 2.823990267510053e-07 0.9999999999952335 3.0746680767228962e-06 0.0014194294780910108
+  rotation 0.0007097173522332141 -0.0007097183522337103 0.9999994963004434 -1.5707953071795862
   children [
     TouchSensor {
       translation 0 0 0.04
@@ -460,7 +365,7 @@ Robot {
     }
     Lidar {
       translation 0 0 0.03
-      horizontalResolution 111
+      horizontalResolution 360
       fieldOfView 6.28319
       numberOfLayers 1
       near 0.05

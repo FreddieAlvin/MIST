@@ -1,89 +1,72 @@
 """
-train_ppo.py  –  Trains the PPO agent for Project MIST inside Webots.
-
-Run via the Webots extern-controller mechanism:
-    MIST_NAV_MODE=PURE_PPO  python train_ppo.py
-
-The script bootstraps the Supervisor, constructs a MistNavEnv wrapping the
-live Webots session, then hands control to Stable-Baselines3's PPO trainer.
-After training the model is saved to  <project_root>/saved_models/ppo_mist_optimal_model
+train_ppo.py – Trains the PPO agent for Project MIST.
 """
 
 import os
 import sys
 from pathlib import Path
 
+# ── 0. Set Environment Variables BEFORE importing controller ──
+# Manually set WEBOTS_HOME
+os.environ['WEBOTS_HOME'] = '/Applications/Webots.app'
+
+# Add the library to sys.path
+webots_path = os.path.join(os.environ['WEBOTS_HOME'], 'Contents', 'lib', 'controller', 'python')
+if webots_path not in sys.path:
+    sys.path.append(webots_path)
+
+# Now it is safe to import Webots & Stable-Baselines3 elements
 from controller import Supervisor
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
 
-# ── Path resolution ───────────────────────────────────────────────────────────
-# Folder layout expected:
-#   <project_root>/
-#       envs/worlds/worlds/         ← this file lives here (extern controller)
-#       src/utils/mist_env.py
-#       saved_models/
+# ── 1. Path Resolution ──
+CURRENT_DIR = Path(__file__).resolve().parent        # Points to MIST/src/agents/
+SRC_DIR     = CURRENT_DIR.parent                       # Points to MIST/src/
+MIST_ROOT   = SRC_DIR.parent                           # Points to MIST/ root folder
+LOG_DIR     = MIST_ROOT / "results" / "logs"
+TB_DIR      = MIST_ROOT / "results" / "tensorboard"
+MODEL_DIR   = MIST_ROOT / "saved_models"               # Aligned with mist_controller.py lookup path
 
-SRC_DIR   = Path(__file__).resolve().parent            # .../envs/worlds/worlds
-# Walk up to project root: worlds/ → worlds/ → envs/ → <root>
-MIST_ROOT = SRC_DIR.parent.parent.parent
+for folder in [LOG_DIR, TB_DIR, MODEL_DIR]:
+    folder.mkdir(parents=True, exist_ok=True)
 
-# Make utils importable
-UTILS_DIR = MIST_ROOT / "src" / "utils"
-sys.path.insert(0, str(UTILS_DIR))
+# Safe search path additions for structural flexibility
+sys.path.insert(0, str(SRC_DIR))
+sys.path.insert(0, str(SRC_DIR / "utils"))
 
-from utils.mist_env import MistNavEnv
+from mist_env import MistNavEnv
 
-
-# ── Optional noise-curriculum callback ───────────────────────────────────────
+# ── 2. Noise-Curriculum Callback ──
 class NoiseCurriculumCallback(BaseCallback):
-    """
-    Gradually increases sensor noise during training to make the agent
-    robust to fog / backscatter (the core MIST hypothesis).
-
-    Noise schedule (in normalised prox units):
-        0 – 30 k steps  : 0.00  (clean environment, learn basic navigation)
-       30 – 70 k steps  : 0.01  (light fog)
-       70 k+ steps      : 0.02  (heavy fog / backscatter)
-    """
-
     def __init__(self, env: MistNavEnv, verbose: int = 1):
         super().__init__(verbose)
         self.env = env
 
     def _on_step(self) -> bool:
         n = self.num_timesteps
-        if n < 30_000:
-            self.env.set_noise(0.00)
-        elif n < 70_000:
-            self.env.set_noise(0.01)
-        else:
-            self.env.set_noise(0.02)
+        if n < 30_000:   self.env.set_noise(0.00)
+        elif n < 70_000: self.env.set_noise(0.01)
+        else:            self.env.set_noise(0.02)
         return True
 
-
 def main():
-    # ── Webots hardware init ──────────────────────────────────────────────────
+    # ── Webots Hardware Init ──
     robot    = Supervisor()
     timestep = int(robot.getBasicTimeStep())
-
-    wheels = [robot.getDevice("left wheel motor"),
-              robot.getDevice("right wheel motor")]
+    wheels   = [robot.getDevice("left wheel motor"), robot.getDevice("right wheel motor")]
     for w in wheels:
         w.setPosition(float('inf'))
         w.setVelocity(0.0)
 
-    proximity_sensors = []
-    for i in range(8):
-        ps = robot.getDevice(f"ps{i}")
+    proximity_sensors = [robot.getDevice(f"ps{i}") for i in range(8)]
+    for ps in proximity_sensors:
         ps.enable(timestep)
-        proximity_sensors.append(ps)
 
-    # ── Environment ───────────────────────────────────────────────────────────
+    # ── Environment ──
     env = MistNavEnv(robot, wheels, proximity_sensors, noise_level=0.0)
 
-    # ── Model ─────────────────────────────────────────────────────────────────
-    tensorboard_dir = str(MIST_ROOT / "ppo_mist_tensorboard")
+    # ── PPO Model Setup ──
     model = PPO(
         "MlpPolicy",
         env,
@@ -95,26 +78,23 @@ def main():
         gamma=0.99,
         gae_lambda=0.95,
         clip_range=0.2,
-        ent_coef=0.01,          # small entropy bonus for exploration
-        tensorboard_log=tensorboard_dir,
+        ent_coef=0.01,
+        tensorboard_log=str(TB_DIR),
     )
 
     curriculum_cb = NoiseCurriculumCallback(env, verbose=1)
 
-    # ── Training ──────────────────────────────────────────────────────────────
-    TOTAL_STEPS = 150_000   # ~150 k steps give a reasonable policy; increase for publication
-    print(f"🚀 Training starting – {TOTAL_STEPS:,} timesteps with noise curriculum …")
+    # ── Training ──
+    TOTAL_STEPS = 150_000
+    print(f"🚀 Training starting: {TOTAL_STEPS:,} steps...")
     model.learn(total_timesteps=TOTAL_STEPS, callback=curriculum_cb)
 
-    # ── Save ──────────────────────────────────────────────────────────────────
-    save_dir = MIST_ROOT / "saved_models"
-    save_dir.mkdir(parents=True, exist_ok=True)
-    save_path = save_dir / "ppo_mist_optimal_model"
+    # ── Save Artifacts ──
+    save_path = MODEL_DIR / "ppo_mist_optimal_model"
     model.save(str(save_path))
-    print(f"✅ Training complete.  Model saved to: {save_path}.zip")
+    print(f"✅ Training complete. Model saved to: {save_path}.zip")
 
     robot.simulationQuit(0)
-
 
 if __name__ == "__main__":
     main()
