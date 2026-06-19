@@ -4,7 +4,7 @@
 **Objective:** Investigation of RL agent robustness in low-visibility navigation environments.
 
 ## Overview
-Project MIST (Multimodal Intelligent Sensor-fusion for Trajectory-navigation) explores how autonomous agents can maintain navigation reliability in degraded sensor conditions. Using a Pioneer 3AT robot in the Webots simulator, we test agents against simulated environmental challenges such as fog-induced LiDAR backscattering.
+Project MIST (Multimodal Intelligent Sensor-fusion for Trajectory-navigation) explores how autonomous agents can maintain navigation reliability in degraded sensor conditions. Using a e-puck robot in the Webots simulator, we test agents against simulated environmental challenges such as fog-induced LiDAR backscattering.
 
 The core of our research is a "speed-to-visibility" policy—an RL-driven mechanism that dynamically balances navigation safety and operational efficiency by fusing noisy distance data with kinematic cues.
 
