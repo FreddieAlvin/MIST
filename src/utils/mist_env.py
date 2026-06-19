@@ -65,11 +65,12 @@ IMAGE_H = 64   # pixels – matches NatureCNN expectation
 IMAGE_W = 64
 
 # ── Camera toggle ─────────────────────────────────────────────────────────────
-# Camera ON. The camera-on run was the high-water mark (cleared lanes 0 AND 1,
-# weaving lane 1's 10 obstacles). Now fused WITH the 16-sector Lidar (3 m
-# lookahead), the policy gets both visual context and ranged obstacle geometry —
-# richer than either alone, and faithful to the original camera+lidar proposal.
-USE_CAMERA = True
+# OFF. The world is narrow walled corridors (the hallway groups): the camera
+# sees repetitive checkerboard walls/floor — 12k pixels of near-constant texture
+# the CNN overfits to — while ALL the task geometry (side walls + obstacle
+# bearings/ranges) is in the Lidar. Lidar + kinematics is the clean, sufficient
+# representation for corridor following. Set True only to experiment with vision.
+USE_CAMERA = False
 
 # ── Lane layout (must match mist_controller.py) ───────────────────────────────
 LANE_STARTS = [
@@ -80,6 +81,15 @@ LANE_STARTS = [
 ]
 GOAL_X   = 10.6659
 GOAL_DIST_NORM = 25.0   # normalisation denominator for distance-to-goal
+
+# ── Training lanes (natural difficulty curriculum) ────────────────────────────
+# The lanes form an increasing-difficulty curriculum (0 empty → 1 obstacles →
+# 2 more → 3 most), so training goes through ALL of them. This is only sound
+# while the world is STATIC: a moving lane makes training non-stationary and
+# wrecks the value function. So keep the Pioneer3ats static (controller "<none>")
+# during training, and enable "moving_wall" ONLY for the dynamic eval/test on
+# lane 3 (static-trained policy → dynamic test = a clean generalisation check).
+TRAIN_LANES = (0, 1, 2, 3)
 
 # ── Episode budget ────────────────────────────────────────────────────────────
 # At full speed (0.126 m/s) a clean lane takes ~155 s ≈ 4860 steps. 8000 steps
@@ -116,6 +126,9 @@ class MistNavEnv(gym.Env):
         self.MAX_STEPS    = MAX_EPISODE_STEPS
         self.prev_dist    = 0.0
         self.current_lane = 0
+        self.frac_floor   = 0.1     # reverse-curriculum: nearest spawn fraction
+        self.frac_window  = 0.25    # frontier sampling window width
+        self.frac_max     = 1.0     # ramped up by the training callback
 
         # ── Action space ──────────────────────────────────────────────────────
         self.action_space = spaces.Box(
@@ -148,6 +161,10 @@ class MistNavEnv(gym.Env):
     def set_noise(self, noise_level: float):
         """Change the simulated fog / backscatter noise level at runtime."""
         self.noise_level = noise_level
+
+    def set_start_curriculum(self, frac_max: float):
+        """Upper bound of the reverse-curriculum start fraction (0→goal, 1→start)."""
+        self.frac_max = float(np.clip(frac_max, self.frac_floor, 1.0))
 
     # ──────────────────────────────────────────────────────────────────────────
     # Observation construction
@@ -267,15 +284,19 @@ class MistNavEnv(gym.Env):
         super().reset(seed=seed)
         self.step_count = 0
 
-        # Randomise lane every episode so all four lanes are trained.
-        self.current_lane = int(self.np_random.integers(0, len(LANE_STARTS)))
+        # Sample a TRAINING lane only (lane 3 is held out for testing).
+        self.current_lane = int(self.np_random.choice(TRAIN_LANES))
         lane = LANE_STARTS[self.current_lane]
 
-        # Spawn at the true lane start. (The reverse curriculum was removed: its
-        # frontier schedule gave healthy training metrics but a policy that did
-        # not transfer to the true start — adding complexity hurt more than it
-        # helped. Back to the simple, stable setup of the best run.)
-        start_pos = [lane[0], lane[1], lane[2]]
+        # Reverse curriculum (frontier window): spawn between the goal (frac→0)
+        # and the true lane start (frac→1), in a sliding window just below the
+        # current ceiling so the agent always trains near its competence
+        # frontier. The callback ramps frac_max 0.3→1.0. This bootstraps the
+        # weave-and-finish skill that long sparse lanes otherwise never teach.
+        lo      = max(self.frac_floor, self.frac_max - self.frac_window)
+        frac    = float(self.np_random.uniform(lo, self.frac_max))
+        start_x = GOAL_X - frac * (GOAL_X - lane[0])
+        start_pos = [start_x, lane[1], lane[2]]
 
         self.robot_node.getField("translation").setSFVec3f(start_pos)
         self.robot_node.getField("rotation").setSFRotation([0, 0, 1, 0])
@@ -285,7 +306,7 @@ class MistNavEnv(gym.Env):
             w.setVelocity(0.0)
 
         self.robot.step(self.timestep)
-        self.prev_dist = abs(GOAL_X - start_pos[0])
+        self.prev_dist = abs(GOAL_X - start_x)
         return self._get_obs(), {}
 
     def step(self, action):
@@ -325,13 +346,20 @@ class MistNavEnv(gym.Env):
         reward  = progress * 50.0                  # dominant dense signal
         reward -= 0.01                             # small time penalty
         if collision:
-            reward -= 0.5                          # good-run value (weave > graze)
+            reward -= 0.5                          # contact penalty
         reward -= abs(float(action[1])) * 0.02     # gentle steering penalty
-        # NOTE: an anti-freeze penalty was tried (v4 on action[0], v5 on actual
-        # displacement) to stop the lane-2/3 freeze. Both HURT: v4 taught the
-        # policy to spin in place; v5 added enough reward noise that PPO never
-        # learned (std stuck at 0.92 after 300k). Reverted. The real cause of
-        # the hard-lane freeze is insufficient sensing, addressed via the Lidar.
+
+        # ── Clearance reward (corridor navigation) ────────────────────────────
+        # The world is narrow walled corridors, so "go forward" alone lets the
+        # policy grind along a side wall (still makes X-progress). Penalise
+        # letting the NEAREST Lidar return drop below CLEARANCE_M so the agent
+        # prefers to travel centred and weave around obstacles with margin,
+        # instead of hugging a wall. This is the "stay in free space" prior that
+        # APF gets for free from its repulsive field.
+        nearest_m = float(np.min(obs["lidar"])) * LIDAR_MAX_RANGE
+        CLEARANCE_M = 0.15
+        if nearest_m < CLEARANCE_M:
+            reward -= 0.2 * (CLEARANCE_M - nearest_m) / CLEARANCE_M
 
         # ── Termination / truncation ──────────────────────────────────────────
         lane_completed = bool(pos[0] >= GOAL_X)

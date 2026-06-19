@@ -1,0 +1,5 @@
+Timestamp_Wall_Clock,Lane_Index,Navigation_Mode,Time_Taken_Seconds,Distance_Traveled_Meters,Lane_Completed,Obstacle_Hits,Fog_Level,Run_Label
+2026-06-19 02:33:22,0,PURE_DSTAR_STALL,310.496,17.964,False,0,0.05,baseline
+2026-06-19 02:37:22,1,PURE_DSTAR_STALL,150.24,7.177,False,0,0.05,baseline
+2026-06-19 02:38:14,2,PURE_DSTAR_STALL,40.064,1.477,False,0,0.05,baseline
+2026-06-19 02:39:36,3,PURE_DSTAR_STALL,60.096,2.837,False,0,0.05,baseline

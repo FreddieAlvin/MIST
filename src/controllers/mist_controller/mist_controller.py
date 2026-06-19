@@ -17,6 +17,7 @@ Lane_Completed = False if the lane was abandoned due to stall or timeout.
 import os
 import sys
 import math
+import random
 import csv
 import datetime
 from pathlib import Path
@@ -47,9 +48,8 @@ if sys.platform == "darwin":
     _wlib = os.path.join(os.environ['WEBOTS_HOME'],
                          'Contents', 'lib', 'controller', 'python')
 elif sys.platform == "win32":
-    os.environ['WEBOTS_HOME'] = 'C:\\Program Files\\Webots'
-    _wlib = os.path.join(os.environ['WEBOTS_HOME'],
-                         'lib', 'controller', 'python')
+    os.environ['WEBOTS_HOME'] = r'C:\Users\ines.castro\Desktop\robotica\Webots'
+    _wlib = os.path.join(os.environ['WEBOTS_HOME'], 'lib', 'controller', 'python')
 else:
     os.environ['WEBOTS_HOME'] = '/usr/local/webots'
     _wlib = os.path.join(os.environ['WEBOTS_HOME'],
@@ -70,18 +70,35 @@ MODEL_DIR = MIST_ROOT / "saved_models"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 NAVIGATION_MODE = os.environ.get("MIST_NAV_MODE", "PURE_DSTAR")
-CSV_PATH        = LOG_DIR / f"{NAVIGATION_MODE}_performance_log.csv"
-file_exists     = CSV_PATH.exists()
+# Test-time "mist": Gaussian noise added to the Lidar (std as a FRACTION of the
+# max range, so it scales). Applied to the point cloud (APF + D*) AND the PPO
+# sectors → all three algorithms see the same fog. e.g.  MIST_NOISE=0.02
+MIST_NOISE = float(os.environ.get("MIST_NOISE", "0.0"))
+# Run label groups a whole experiment so results never overwrite each other.
+# e.g. MIST_RUN=baseline  (PPO trained clean)   /   MIST_RUN=ppo_robust (fog-trained)
+RUN_LABEL  = os.environ.get("MIST_RUN", "baseline")
+# Which saved PPO model to load (without the .zip). Lets you keep a clean baseline
+# model and a separate fog-trained one. e.g. MIST_MODEL=ppo_mist_robust
+MODEL_NAME = os.environ.get("MIST_MODEL", "ppo_mist_optimal_model")
 
-csv_file   = open(str(CSV_PATH), mode='a', newline='', encoding='utf-8')
+# results/logs/<run>/fog_<level>/<MODE>_performance_log.csv  → tidy, no clobber.
+FOG_TAG   = f"fog_{MIST_NOISE:.2f}"
+RUN_DIR   = LOG_DIR / RUN_LABEL / FOG_TAG
+RUN_DIR.mkdir(parents=True, exist_ok=True)
+CSV_PATH  = RUN_DIR / f"{NAVIGATION_MODE}_performance_log.csv"
+
+# Overwrite per run (one run = 4 lanes = 4 clean rows) so re-running a combo never
+# duplicates rows. Each (run, fog, mode) lives in its own file.
+csv_file   = open(str(CSV_PATH), mode='w', newline='', encoding='utf-8')
 csv_writer = csv.writer(csv_file)
-if not file_exists:
-    csv_writer.writerow([
-        "Timestamp_Wall_Clock", "Lane_Index", "Navigation_Mode",
-        "Time_Taken_Seconds",   "Distance_Traveled_Meters", "Lane_Completed",
-        "Obstacle_Hits"
-    ])
-    csv_file.flush()
+csv_writer.writerow([
+    "Timestamp_Wall_Clock", "Lane_Index", "Navigation_Mode",
+    "Time_Taken_Seconds",   "Distance_Traveled_Meters", "Lane_Completed",
+    "Obstacle_Hits", "Fog_Level", "Run_Label"
+])
+csv_file.flush()
+print(f"📝 Logging to: {CSV_PATH}")
+print(f"   run='{RUN_LABEL}'  fog={MIST_NOISE:.2f}  mode={NAVIGATION_MODE}  model='{MODEL_NAME}'")
 
 # ── 5. Core initialisation ────────────────────────────────────────────────────
 robot      = Supervisor()
@@ -177,8 +194,17 @@ def lidar_obstacle_points(max_range: float):
         return []
     for p in cloud:
         d = math.hypot(p.x, p.y)
+        px, py = p.x, p.y
+        # Apply the same "mist" fog as the PPO sectors: jitter each return's
+        # radial distance by N(0, MIST_NOISE * max_range) and move the point
+        # along its ray, so APF repulsion and the D* occupancy grid both degrade.
+        if MIST_NOISE > 0.0 and d > 1e-6:
+            dn = d + random.gauss(0.0, MIST_NOISE * max_range)
+            dn = max(0.0, dn)
+            scale = dn / d
+            px, py, d = p.x * scale, p.y * scale, dn
         if 0.06 < d < max_range:
-            pts.append((p.x, p.y, d))
+            pts.append((px, py, d))
     return pts
 
 # Camera (optional for APF/D* modes; required for PPO only if USE_CAMERA)
@@ -233,7 +259,7 @@ if NAVIGATION_MODE == "PPO":
         # so eval-time wheel mapping cannot drift from training.
         from mist_env import (MistNavEnv, IMAGE_H, IMAGE_W,
                               FORWARD_SCALE, TURN_SCALE, USE_CAMERA, LIDAR_SECTORS)
-        model_path = MODEL_DIR / "ppo_mist_optimal_model"
+        model_path = MODEL_DIR / MODEL_NAME
         ppo_model = SB3PPO.load(str(model_path))
 
         # Guard: the saved policy's observation space must match the current
@@ -281,6 +307,10 @@ def _build_ppo_obs(pos, prox_readings, current_yaw, lane_idx):
                                 for g in np.array_split(ranges, LIDAR_SECTORS)],
                                dtype=np.float32)
             lidar_obs = (sectors / LIDAR_MAX_RANGE).astype(np.float32)
+            if MIST_NOISE > 0.0:
+                lidar_obs = np.clip(
+                    lidar_obs + np.random.normal(0.0, MIST_NOISE, lidar_obs.shape),
+                    0.0, 1.0).astype(np.float32)
         else:
             lidar_obs = np.ones(LIDAR_SECTORS, dtype=np.float32)
     else:
@@ -549,7 +579,7 @@ def reset_to_lane(lane_idx):
 
     _is_pivoting = False
 
-    if robot.getTime() > 0.5 and NAVIGATION_MODE == "PURE_DSTAR":
+    if NAVIGATION_MODE == "PURE_DSTAR":
         dstar.initialize(start_pos[:2], goal_pos[:2])
         dstar.compute_shortest_path()
         dstar.generate_waypoints()
@@ -624,6 +654,8 @@ try:
                 round(lane_distance_traveled, 3),
                 lane_completed,      # ← Lane_Completed column
                 lane_hit_count,      # ← Obstacle_Hits column
+                MIST_NOISE,          # ← Fog_Level column
+                RUN_LABEL,           # ← Run_Label column
             ])
             csv_file.flush()
             if DEBUG_HOLD_LANE:
@@ -734,44 +766,61 @@ try:
 
         # ── ALGORITHM: PURE D* LITE ───────────────────────────────────────────
         elif NAVIGATION_MODE == "PURE_DSTAR":
+            # Compute the Lidar point cloud ONCE and reuse it for both the
+            # occupancy update and the forward-clearance check below, so the fog
+            # noise is sampled a single time (not twice with different values).
+            dpts = lidar_obstacle_points(2.5)
             dstar.sense_and_replan(pos[:2], prox_readings, current_yaw,
-                                   lidar_points=lidar_obstacle_points(2.5))
+                                   lidar_points=dpts)
 
-            if dstar.path_waypoints:
-                active_wp  = dstar.path_waypoints[0]
-                dist_to_wp = math.hypot(active_wp[0]-pos[0], active_wp[1]-pos[1])
-                if dist_to_wp < 0.26 and len(dstar.path_waypoints) > 1:
-                    dstar.path_waypoints.pop(0)
-                    active_wp  = dstar.path_waypoints[0]
-                    dist_to_wp = math.hypot(active_wp[0]-pos[0], active_wp[1]-pos[1])
+            # ── Pure-pursuit LOOKAHEAD waypoint (BUG FIX #1) ──────────────────
+            # The old code always steered to path_waypoints[0] — i.e. the next
+            # grid cell, only ~0.15 m away. That kept dist_to_wp < 0.40 on every
+            # frame, so the speed throttle below was permanently active. Instead:
+            # drop the waypoints we've already reached, then aim at the first one
+            # at least LOOKAHEAD metres ahead (the λ-style window in the paper),
+            # so the robot curves smoothly onto the path like APF does.
+            LOOKAHEAD = 0.55
+            wps = dstar.path_waypoints
+            while len(wps) > 1 and math.hypot(wps[0][0]-pos[0], wps[0][1]-pos[1]) < 0.30:
+                wps.pop(0)
+            if wps:
+                active_wp = wps[0]
+                for wp in wps:
+                    active_wp = wp
+                    if math.hypot(wp[0]-pos[0], wp[1]-pos[1]) >= LOOKAHEAD:
+                        break
             else:
-                active_wp  = [GOAL_ARRAY[current_lane_index][0],
-                               GOAL_ARRAY[current_lane_index][1]]
-                dist_to_wp = math.hypot(active_wp[0]-pos[0], active_wp[1]-pos[1])
+                active_wp = [GOAL_ARRAY[current_lane_index][0],
+                             GOAL_ARRAY[current_lane_index][1]]
+            dist_to_wp = math.hypot(active_wp[0]-pos[0], active_wp[1]-pos[1])
 
             desired_heading = math.atan2(active_wp[1]-pos[1], active_wp[0]-pos[0])
             heading_error   = (desired_heading - current_yaw + math.pi) % (2.0*math.pi) - math.pi
 
-            front_dist = min(ps_to_dist(prox_readings[0]), ps_to_dist(prox_readings[7]))
+            # ── Forward clearance from the LIDAR, not proximity (BUG FIX #2) ──
+            # The old check used ps0/ps7, whose max range is PS_MAX_RANGE = 0.10 m,
+            # against a 0.40 m threshold — so `front_dist < 0.40` was ALWAYS true
+            # and multiplied the speed by ≤0.25 every single step, even on a fully
+            # clear lane. Combined with fix #1 above, this is why D* barely moved.
+            # APF avoids this by sensing with the Lidar; do the same here and only
+            # slow down for a genuine obstacle inside the forward cone.
+            front_clear = 3.0
+            for px, py, dd in dpts:
+                if px > 0.0 and abs(py) < 0.22:   # roughly straight ahead, body width
+                    front_clear = min(front_clear, dd)
 
-            THETA_HIGH = math.radians(30)
-            THETA_LOW  = math.radians(8)
+            base_velocity = 3.0
+            if dist_to_wp < 0.40:
+                base_velocity = max(1.0, base_velocity * (dist_to_wp / 0.40))
+            if front_clear < 0.45:
+                base_velocity *= max(0.2, front_clear / 0.45)
+            if abs(heading_error) > math.radians(60):
+                base_velocity *= 0.35
+            elif abs(heading_error) > math.radians(30):
+                base_velocity *= 0.65
 
-            if abs(heading_error) > THETA_HIGH:
-                _is_pivoting = True
-            elif _is_pivoting and abs(heading_error) < THETA_LOW:
-                _is_pivoting = False
-
-            if _is_pivoting:
-                base_velocity = 0.0
-            else:
-                base_velocity = 3.0
-                if dist_to_wp < 0.40:
-                    base_velocity = max(0.5, base_velocity * (dist_to_wp / 0.40))
-                if front_dist < 0.40:
-                    base_velocity *= (front_dist / 0.40)
-
-            angular_velocity = np.clip(heading_error * 7.5, -4.0, 4.0)
+            angular_velocity = np.clip(heading_error * 5.0, -4.0, 4.0)
 
         # ── ALGORITHM: PPO (trained MultiInputPolicy) ─────────────────────────
         elif NAVIGATION_MODE == "PPO":
@@ -791,9 +840,13 @@ try:
             angular_velocity = 0.0
 
         # ── Wheel mixing (APF + D*; PPO already set velocities via continue) ──
-        # Standard differential drive: left faster → CCW (positive yaw)
-        wheels[0].setVelocity(np.clip(base_velocity + angular_velocity, -MAX_SPEED, MAX_SPEED))
-        wheels[1].setVelocity(np.clip(base_velocity - angular_velocity, -MAX_SPEED, MAX_SPEED))
+        # Differential drive, e-puck convention: to turn LEFT / CCW (+yaw) the
+        # RIGHT wheel must be faster. heading_error>0 means "turn left", so the
+        # RIGHT wheel (wheels[1]) gets +angular and the LEFT (wheels[0]) gets
+        # -angular. (The previous version had this inverted, which made APF and
+        # D* spin in place and never progress.)
+        wheels[0].setVelocity(np.clip(base_velocity - angular_velocity, -MAX_SPEED, MAX_SPEED))
+        wheels[1].setVelocity(np.clip(base_velocity + angular_velocity, -MAX_SPEED, MAX_SPEED))
 
 except Exception as e:
     print(f"❌ CRITICAL RUNTIME EXCEPTION: {e}")

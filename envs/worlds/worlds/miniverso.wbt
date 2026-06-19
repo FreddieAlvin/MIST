@@ -21,7 +21,7 @@ WorldInfo {
 }
 Viewpoint {
   orientation -0.11351658693920377 0.9005269682182889 0.4197203402281703 0.5835488557697397
-  position -18.209332833434484 -1.835171548778106 9.023990765387515
+  position -29.25141467769564 -4.664098950889803 15.676666835350076
 }
 TexturedBackground {
 }
@@ -395,7 +395,7 @@ Robot {
       ]
       endPoint DEF EPUCK_LEFT_WHEEL Solid {
         translation 0 0.026000000000000058 0.02
-        rotation 0 -0.9999999999999999 0 1.525519426116671
+        rotation 0 -1 0 1.525519426116671
         children [
           DEF EPUCK_WHEEL Pose {
             rotation 1 0 0 -1.570796
@@ -1438,27 +1438,27 @@ Pioneer3at {
   translation 1.64 -4.53 0
   rotation 0 0 1 -1.5707953071795862
   name "Pioneer 3-AT(2)"
-  controller "<none>"
+  controller "moving_wall"
   supervisor TRUE
 }
 Pioneer3at {
   translation -5.75 -4.53 0
   rotation 0 0 1 -1.5707953071795862
   name "Pioneer 3-AT(4)"
-  controller "<none>"
+  controller "moving_wall"
   supervisor TRUE
 }
 Pioneer3at {
   translation -2.1 -5.72 0
   rotation 0 0 1 1.5708
   name "Pioneer 3-AT(1)"
-  controller "<none>"
+  controller "moving_wall"
   supervisor TRUE
 }
 Pioneer3at {
   translation 4.75 -5.72 0
   rotation 0 0 1 1.5708
   name "Pioneer 3-AT(3)"
-  controller "<none>"
+  controller "moving_wall"
   supervisor TRUE
 }

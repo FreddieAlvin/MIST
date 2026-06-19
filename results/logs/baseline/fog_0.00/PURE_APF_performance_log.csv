@@ -1,0 +1,5 @@
+Timestamp_Wall_Clock,Lane_Index,Navigation_Mode,Time_Taken_Seconds,Distance_Traveled_Meters,Lane_Completed,Obstacle_Hits,Fog_Level,Run_Label
+2026-06-19 01:28:27,0,PURE_APF_STALL,310.496,17.744,False,0,0.0,baseline
+2026-06-19 01:29:07,1,PURE_APF_STALL,40.064,1.585,False,0,0.0,baseline
+2026-06-19 01:29:37,2,PURE_APF_STALL,30.048,1.05,False,0,0.0,baseline
+2026-06-19 01:30:27,3,PURE_APF_STALL,50.08,2.544,False,0,0.0,baseline

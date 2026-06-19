@@ -1,0 +1,5 @@
+Timestamp_Wall_Clock,Lane_Index,Navigation_Mode,Time_Taken_Seconds,Distance_Traveled_Meters,Lane_Completed,Obstacle_Hits,Fog_Level,Run_Label
+2026-06-18 20:45:31,0,PPO_STALL,240.384,25.652,False,38,0.02,robust_dynamic
+2026-06-18 20:46:24,1,PPO_STALL,50.08,4.929,False,2,0.02,robust_dynamic
+2026-06-18 20:46:56,2,PPO_STALL,30.048,1.596,False,1,0.02,robust_dynamic
+2026-06-18 20:49:00,3,PPO_STALL,120.192,5.073,False,1,0.02,robust_dynamic
